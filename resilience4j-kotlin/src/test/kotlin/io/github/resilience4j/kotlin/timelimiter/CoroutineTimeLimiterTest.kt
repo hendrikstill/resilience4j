@@ -23,6 +23,8 @@ import io.github.resilience4j.timelimiter.TimeLimiter
 import io.github.resilience4j.timelimiter.event.TimeLimiterOnErrorEvent
 import io.github.resilience4j.timelimiter.event.TimeLimiterOnSuccessEvent
 import io.github.resilience4j.timelimiter.event.TimeLimiterOnTimeoutEvent
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions
 import org.junit.Test
@@ -99,6 +101,32 @@ class CoroutineTimeLimiterTest {
             Assertions.assertThat(helloWorldService.invocationCounter).isEqualTo(1)
             Assertions.assertThat(timeoutEvents).hasSize(1)
         }
+    }
+
+    @Test
+    fun `should not throw TimeoutException on cancellation of parent coroutine`() {
+            val timelimiter = TimeLimiter.of(TimeLimiterConfig { timeoutDuration(Duration.ofMillis(100)) })
+            val helloWorldService = CoroutineHelloWorldService()
+            val timeoutEvents = mutableListOf<TimeLimiterOnTimeoutEvent>()
+            timelimiter.eventPublisher.onTimeout(timeoutEvents::add)
+
+            Assertions.assertThatNoException().isThrownBy {
+                runBlocking {
+                    val job = launch {
+                        timelimiter.executeSuspendFunction {
+                            helloWorldService.wait()
+                        }
+                    }
+                    delay(10)
+                    job.cancel()
+                    delay(200)
+                }
+            }
+
+            //Then
+            // Then the helloWorldService should be invoked 1 time
+            Assertions.assertThat(helloWorldService.invocationCounter).isEqualTo(1)
+            Assertions.assertThat(timeoutEvents).hasSize(0)
     }
 
     @Test
